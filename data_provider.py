@@ -33,22 +33,22 @@ class DataProvision:
             self._ids[split] = tmp_ids
 
             self._sizes[split] = len(self._ids[split])
-            
+
             tmp_captions = json.load(open(os.path.join(self._options['caption_data_root'], split, 'encoded_sentences.json'), 'r'))
             captions[split] = {tmp_ids[i]:tmp_captions[i] for i in range(len(tmp_ids))}
 
         # merge two caption dictionaries
         self._captions = {}
         for split in self._splits:
-            self._captions = dict(self._captions.items() + captions[split].items())
+            self._captions = dict(list(self._captions.items()) + list(captions[split].items()))
 
 
         # feature dictionary
         print('Loading c3d features ...')
         features = h5py.File(self._options['feature_data_path'], 'r')
         self._feature_ids = features.keys()
-        self._features = {video_id:np.asarray(features[video_id].values()[0]) for video_id in self._feature_ids}
-        
+        self._features = {video_id:np.asarray(list(features[video_id].values())[0]) for video_id in self._feature_ids}
+
 
         # load label weight data
         print('Loading label weight data ...')
@@ -76,7 +76,7 @@ class DataProvision:
 
         print('Done loading.')
 
-            
+
 
     def get_size(self, split):
         return self._sizes[split]
@@ -99,13 +99,13 @@ class DataProvision:
             cap_len = []
             for caption in captions:
                 cap_len.append(len(caption))
-            
+
             caption_length.append(cap_len)
 
         caption_num = len(batch_paragraph[0])
         input_idx = np.zeros((len(batch_paragraph), caption_num, self._options['caption_seq_len']), dtype='int32')
         input_mask = np.zeros_like(input_idx)
-        
+
         for i, captions in enumerate(batch_paragraph):
             for j in range(caption_num):
                 caption = captions[j]
@@ -125,7 +125,7 @@ class DataProvision:
             random.shuffle(ids)
 
         current = 0
-        
+
         while True:
 
             batch_paragraph = []
@@ -152,7 +152,7 @@ class DataProvision:
             batch_feature_fw.append(feature_fw)
             batch_feature_bw.append(feature_bw)
 
-            
+
             localization = self._localization[split][vid]
             timestamps = localization['timestamps']
             duration = localization['duration']
@@ -161,7 +161,7 @@ class DataProvision:
             start_time = 0.
             end_time = duration
 
-            
+
             n_anchors = len(self._anchors)
             # ground truth proposal
             gt_proposal_fw = np.zeros(shape=(feature_len, n_anchors), dtype='int32')
@@ -174,9 +174,9 @@ class DataProvision:
             gt_caption = [[0] for i in range(feature_len)]
 
             paragraph = self._captions[vid]
-            
+
             assert self._options['caption_tiou_threshold'] >= self._options['proposal_tiou_threshold']
-            
+
             # calculate ground truth labels
             for stamp_id, stamp in enumerate(timestamps):
                 t1 = stamp[0]
@@ -191,18 +191,18 @@ class DataProvision:
                 start_bw = duration - end
                 end_bw = duration - start
 
-                
+
                 # if not end or if no overlap at all
                 if end > end_time or start > end_time:
                     continue
-                
+
                 end_feat_id = max(int(round(end*feature_len/duration)-1), 0)
                 start_feat_id = max(int(round(start*feature_len/duration) - 1), 0)
 
                 mid_feature_id = int(round(((1.-self._options['proposal_tiou_threshold'])*end + self._options['proposal_tiou_threshold']*start) * feature_len / duration)) - 1
                 mid_feature_id = max(0, mid_feature_id)
 
-                
+
                 for i in range(mid_feature_id, feature_len):
                     overlap = False
                     for anchor_id, anchor in enumerate(self._anchors):
@@ -220,11 +220,11 @@ class DataProvision:
                             i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)
                             i_bw = max(min(i_bw, feature_len-1), 0)
 
-                            
+
                             gt_proposal_fw[i, anchor_id] = 1
                             gt_proposal_bw[i_bw, anchor_id] = 1
-                                
-                        
+
+
                             if iou > self._options['caption_tiou_threshold']:
                                 gt_proposal_caption_fw[i] = 1
                                 gt_proposal_caption_bw[i] = i_bw
@@ -232,14 +232,14 @@ class DataProvision:
 
                         elif overlap:
                             break
-                                
-            
+
+
             batch_proposal_fw.append(gt_proposal_fw)
             batch_proposal_bw.append(gt_proposal_bw)
             batch_proposal_caption_fw.append(gt_proposal_caption_fw)
             batch_proposal_caption_bw.append(gt_proposal_caption_bw)
             batch_paragraph.append(gt_caption)
-            
+
             batch_caption, batch_caption_mask = self.process_batch_paragraph(batch_paragraph)
 
             batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')
@@ -251,16 +251,16 @@ class DataProvision:
             batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')
             batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')
             batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')
-            
+
 
             # serve as a tuple
             batch_data = {'video_feat_fw': batch_feature_fw, 'video_feat_bw': batch_feature_bw, 'caption': batch_caption, 'caption_mask': batch_caption_mask, 'proposal_fw': batch_proposal_fw, 'proposal_bw': batch_proposal_bw, 'proposal_caption_fw': batch_proposal_caption_fw, 'proposal_caption_bw': batch_proposal_caption_bw, 'proposal_weight': np.array(self._proposal_weight)}
 
-            
+
             yield batch_data
 
             current = current + batch_size
-            
+
             if current + batch_size > self.get_size(split):
                 current = 0
                 # at the end of list, shuffle it

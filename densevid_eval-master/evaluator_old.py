@@ -9,10 +9,13 @@ import argparse
 import json
 import sys
 sys.path.insert(0, './coco-caption') # Hack to allow the import of pycocoeval
+import importlib
 
 ## add by Jingwen Wang ##
-reload(sys)
-sys.setdefaultencoding('utf-8')
+# for python3 support
+importlib.reload(sys)
+# not needed for python3
+# sys.setdefaultencoding('utf-8')
 ############################
 
 from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
@@ -20,7 +23,8 @@ from pycocoevalcap.bleu.bleu import Bleu
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.rouge.rouge import Rouge
 from pycocoevalcap.cider.cider import Cider
-from sets import Set
+# not required in Python3
+# from sets import Set
 import numpy as np
 
 def remove_nonascii(text):
@@ -62,7 +66,7 @@ class ANETcaptions(object):
 
     def import_prediction(self, prediction_filename):
         if self.verbose:
-            print "| Loading submission..."
+            print("| Loading submission...")
         submission = json.load(open(prediction_filename))
         if not all([field in submission.keys() for field in self.pred_fields]):
             raise IOError('Please input a valid ground truth file.')
@@ -74,13 +78,13 @@ class ANETcaptions(object):
 
     def import_ground_truths(self, filenames):
         gts = []
-        self.n_ref_vids = Set()
+        self.n_ref_vids = set()
         for filename in filenames:
             gt = json.load(open(filename))
             self.n_ref_vids.update(gt.keys())
             gts.append(gt)
         if self.verbose:
-            print "| Loading GT. #files: %d, #videos: %d" % (len(filenames), len(self.n_ref_vids))
+            print("| Loading GT. #files: %d, #videos: %d" % (len(filenames), len(self.n_ref_vids)))
         return gts
 
     def iou(self, interval_1, interval_2):
@@ -156,8 +160,8 @@ class ANETcaptions(object):
                                 ref_set_covered.add(ref_i)
                                 pred_set_covered.add(pred_i)
 
-                    # a bug here 
-                    #new_precision = float(len(pred_set_covered)) / pred_i 
+                    # a bug here
+                    #new_precision = float(len(pred_set_covered)) / pred_i
                     if len(self.prediction[vid_id]) == 0:
                         new_precision = 0.
                     else:
@@ -173,7 +177,7 @@ class ANETcaptions(object):
         return sum(precision) / len(precision), sum(recall) / len(recall)
 
     def evaluate_tiou(self, tiou):
-        # This method averages the tIoU precision from METEOR, Bleu, etc. across videos 
+        # This method averages the tIoU precision from METEOR, Bleu, etc. across videos
         res = {}
         gts = {}
         gt_vid_ids = self.get_gt_vid_ids()
@@ -184,13 +188,13 @@ class ANETcaptions(object):
         vid2capid = {}
         cur_res = {}
         cur_gts = {}
-        
-        
+
+
 
         for vid_id in gt_vid_ids:
 
             #res[vid_id] = {}
-            #gts[vid_id] = {} 
+            #gts[vid_id] = {}
 
             # If the video does not have a prediction, then we give it no matches
             # We set it to empty, and use this as a sanity check later on
@@ -225,7 +229,7 @@ class ANETcaptions(object):
                                 vid2capid[vid_id].append(unique_index)
                                 unique_index += 1
                                 has_added = True
-                                
+
 
                         # If the predicted caption does not overlap with any ground truth,
                         # we should compare it with garbage
@@ -235,17 +239,17 @@ class ANETcaptions(object):
 
                             vid2capid[vid_id].append(unique_index)
 
-                # 
+                #
                 # unique_index += 1
 
 
-        
+
         # Each scorer will compute across all videos and take average score
         output = {}
         for scorer, method in self.scorers:
             if self.verbose:
-                print 'computing %s score...'%(scorer.method())
-            
+                print('computing %s score...'%(scorer.method()))
+
             # For each video, take all the valid pairs (based from tIoU) and compute the score
             all_scores = {}
 
@@ -268,21 +272,21 @@ class ANETcaptions(object):
                     score, scores = scorer.compute_score(gts[vid_id], res[vid_id])
                     # only compute score for given vid, for sampling situation
                     all_scores[vid_id] = score
-                
+
                 #all_scores[vid_id] = score
 
-            
 
-            print all_scores.values()
+
+            print(all_scores.values())
             if type(method) == list:
                 scores = np.mean(all_scores.values(), axis=0)
                 for m in xrange(len(method)):
                     output[method[m]] = scores[m]
                     if self.verbose:
-                        print "Calculated tIoU: %1.1f, %s: %0.3f" % (tiou, method[m], output[method[m]])
+                        print("Calculated tIoU: %1.1f, %s: %0.3f" % (tiou, method[m], output[method[m]]))
             else:
-                output[method] = np.mean(all_scores.values())
+                output[method] = np.mean(list(all_scores.values())) # For Python3 support
                 if self.verbose:
-                    print "Calculated tIoU: %1.1f, %s: %0.3f" % (tiou, method, output[method])
+                    print("Calculated tIoU: %1.1f, %s: %0.3f" % (tiou, method, output[method]))
 
         return output

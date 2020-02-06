@@ -7,11 +7,14 @@ import argparse
 import numpy as np
 from opt import *
 from data_provider import *
-from model import * 
+from model import *
 import sys
+import importlib
 
-reload(sys)
-sys.setdefaultencoding('utf-8')
+importlib.reload(sys)
+# https://stackoverflow.com/questions/28127513/attributeerror-module-object-has-no-attribute-setdefaultencoding/28127538
+# Not needed for python 3
+# sys.setdefaultencoding('utf-8')
 sys.path.insert(0, './densevid_eval-master')
 sys.path.insert(0, './densevid_eval-master/coco-caption')
 #from evaluator import *
@@ -30,7 +33,7 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
     val_caption_loss_list = []
     val_count = min(data_provision.get_size('val'), options['loss_eval_num'])
     batch_size = options['batch_size']
-    
+
     count = 0
     for batch_data in data_provision.iterate_batch('val', batch_size):
         print('Evaluating batch: #%d'%count)
@@ -50,7 +53,7 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
 
         if count >= val_count:
             break
-    
+
     ave_val_loss = sum(val_loss_list) / float(val_count)
     ave_proposal_val_loss = sum(val_proposal_loss_list) / float(val_count)
     ave_caption_val_loss = sum(val_caption_loss_list) / float(val_count)
@@ -80,18 +83,18 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
 
     word2ix = options['vocab']
     ix2word = {ix:word for word,ix in word2ix.items()}
-    
+
     # output json data for evaluation
     out_data = {}
     out_data['version'] = 'VERSION 1.0'
     out_data['external_data'] = {'used':False, 'details': ''}
     out_data['results'] = {}
     results = {}
-    
+
     count = 0
     batch_size = options['eval_batch_size']    # default batch size to evaluate
     assert batch_size == 1
-    
+
     eval_num = batch_size*options['metric_eval_num']
     print('Will evaluate %d samples'%eval_num)
 
@@ -105,16 +108,16 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         print('video id: %s'%vid)
 
         proposal_score_fw, proposal_score_bw, rnn_outputs_fw, rnn_outputs_bw = sess.run([proposal_outputs['proposal_score_fw'], proposal_outputs['proposal_score_bw'], proposal_outputs['rnn_outputs_fw'], proposal_outputs['rnn_outputs_bw']], feed_dict={proposal_inputs['video_feat_fw']:batch_data['video_feat_fw'], proposal_inputs['video_feat_bw']:batch_data['video_feat_bw']})
-        
+
         feat_len = batch_data['video_feat_fw'][0].shape[0]
         duration = localizaitons['val'][vid]['duration']
-        
+
         '''calculate final score by summarizing forward score and backward score
         '''
         proposal_score = np.zeros((feat_len, options['num_anchors']))
         proposal_infos = []
 
-        
+
         for i in range(feat_len):
             pre_start = -1.
             for j in range(options['num_anchors']):
@@ -136,41 +139,41 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
                 proposal_score[i,j] = forward_score*backward_score
 
                 hidden_feat = np.concatenate([rnn_outputs_fw[i], rnn_outputs_bw[i_bw]], axis=-1)
-                    
-                
+
+
                 proposal_feats = batch_data['video_feat_fw'][0][feat_len-1-i_bw:i+1]
                 proposal_infos.append({'timestamp':[start, end], 'score': proposal_score[i,j], 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
-                            
+
                 pre_start = start
-        
+
         # add the largest proposal
         hidden_feat = np.concatenate([rnn_outputs_fw[feat_len-1], rnn_outputs_bw[feat_len-1]], axis=-1)
-            
-        
+
+
         proposal_feats = batch_data['video_feat_fw'][0]
         proposal_infos.append({'timestamp':[0., duration], 'score': 1., 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
-        
+
 
         proposal_infos = sorted(proposal_infos, key=getKey, reverse=True)
         proposal_infos = proposal_infos[:options['max_proposal_num']]
 
         print('Number of proposals: %d'%len(proposal_infos))
 
-        # 
+        #
         event_hidden_feats = [item['event_hidden_feats'] for item in proposal_infos]
         proposal_feats = [item['proposal_feats'] for item in proposal_infos]
 
-        
+
         event_hidden_feats = np.array(event_hidden_feats, dtype='float32')
         proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len'])
 
         # run session to get word ids
         word_ids = sess.run(caption_outputs['word_ids'], feed_dict={caption_inputs['event_hidden_feats']: event_hidden_feats, caption_inputs['proposal_feats']: proposal_feats})
-        
-        
+
+
         sentences = [[ix2word[i] for i in ids] for ids in word_ids]
         sentences = [sentence[1:] for sentence in sentences]
-        
+
         # remove <END> word
         out_sentences = []
         for sentence in sentences:
@@ -178,18 +181,18 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
             if '<END>' in sentence:
                 end_id = sentence.index('<END>')
                 sentence = sentence[:end_id]
-            
+
             sentence = ' '.join(sentence)
             sentence = sentence.replace('<UNK>', '')
             out_sentences.append(sentence)
 
-        
+
         print('Output sentences: ')
         for out_sentence in out_sentences:
             print(out_sentence)
 
         result = [{'timestamp': proposal['timestamp'], 'sentence': out_sentences[i]} for i, proposal in enumerate(proposal_infos)]
-                    
+
         results[vid] = result
 
         count += 1
@@ -198,7 +201,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
             break
 
     out_data['results'] = results
-    
+
     resFile = 'results/%d/temp_results.json'%options['train_id']
     root_folder = os.path.dirname(resFile)
     if not os.path.exists(root_folder):
@@ -209,7 +212,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         json.dump(out_data, fid)
 
     # Call evaluator
-    
+
     evaluator = ANETcaptions(ground_truth_filenames=['densevid_eval-master/data/val_1.json', 'densevid_eval-master/data/val_2.json'],
                              prediction_filename=resFile,
                              tious=options['tiou_measure'],
@@ -235,7 +238,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         score = evaluator.scores[metric]
         avg_score = 100 * sum(score) / float(len(score))
         avg_scores[metric] = avg_score
-    
+
     # print output evaluation scores
     fid = open('results/%d/score_history.txt'%options['train_id'], 'a')
     for metric, score in avg_scores.items():
@@ -246,12 +249,12 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
     fid.close()
 
     combined_score = avg_scores['METEOR']
-    
+
     return avg_scores, combined_score
 
 
 def train(options):
-    
+
     sess_config = tf.ConfigProto()
     #sess_config.gpu_options.allow_growth=True
     sess_config.gpu_options.allow_growth=False
@@ -298,11 +301,11 @@ def train(options):
         t_rnn_outputs_bw = proposal_outputs['rnn_outputs_bw']
         t_word_ids = caption_outputs['word_ids']
     #############################################
-    
+
     t_summary = tf.summary.merge_all()
     t_lr = tf.placeholder(tf.float32)
 
-    
+
     if options['solver'] == 'adam':
         optimizer = tf.train.AdamOptimizer(learning_rate=t_lr)
     elif options['solver'] == 'sgd':
@@ -313,7 +316,7 @@ def train(options):
         optimizer = tf.train.AdadeltaOptimizer(learning_rate=t_lr)
     else:
         optimizer = tf.train.GradientDescentOptimizer(learning_rate=t_lr)
-    
+
     # get trainable variable list
     trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
     if not options['train_proposal']:
@@ -371,7 +374,7 @@ def train(options):
             restore_vars = [v for v in restore_vars if v.name.startswith('caption_module/')]
         elif options['init_module'] == 'all':
             pass
-            
+
         # for restoring from another graph (contain different structure) at the beginning
         saver_part = tf.train.Saver(var_list=restore_vars)
         saver_part.restore(sess, options['init_from'])
@@ -394,7 +397,7 @@ def train(options):
         all_scores = -1
         if options['evaluate_metric']:
             all_scores, combined_score = evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, caption_inputs, proposal_outputs, caption_outputs)
-            
+
             print('combined score: %.3f'%(combined_score,))
 
 
@@ -402,9 +405,9 @@ def train(options):
     eval_id = 0
     train_batch_generator = data_provision.iterate_batch('train', batch_size)
     checkpoint_filenames = []
-    
+
     for epoch in range(init_epoch, max_epochs):
-        
+
         # manually set when to decay learning rate
         if not options['auto_lr_decay']:
             if epoch == next_epoch_to_decay:
@@ -415,7 +418,7 @@ def train(options):
 
                 print('Decaying learning rate ...')
                 lr *= lr_decay_factor
-        
+
         print('epoch: %d/%d, lr: %.1E (%.1E)'%(epoch, max_epochs, lr, lr_init))
         for iter in range(n_iters_per_epoch):
             batch_data = next(train_batch_generator)
@@ -432,12 +435,12 @@ def train(options):
 
             if 'print_debug' in options and options['print_debug']:
                 print('n_proposals: %d'%n_proposals)
-            
+
             if iter == 0 and epoch == init_epoch:
                 smooth_loss = loss
             else:
                 smooth_loss = 0.9 * smooth_loss + 0.1 * loss
-            
+
             if iter % options['n_iters_display'] == 0:
                 print('iter: %d, epoch: %d/%d, \nlr: %.1E, loss: %.4f, proposal_loss: %.4f, caption_loss: %.4f'%(iter, epoch, max_epochs, lr, loss, proposal_loss, caption_loss))
                 train_summary_writer.add_summary(summary, iter + epoch * n_iters_per_epoch)
@@ -452,9 +455,9 @@ def train(options):
             if (time.time() - t0) / 60.0 > 0.5:
                 t0 = time.time()
                 json.dump(json_worker_status, open(status_file, 'w'))
-            
+
             if (iter + 1) % eval_in_iters == 0:
-                
+
                 print('Evaluating model ...')
                 val_loss, val_proposal_loss, val_caption_loss = evaluation(options, data_provision, sess, inputs, t_loss_list)
                 print('loss: %.4f, proposal_loss: %.4f, caption_loss: %.4f'%(val_loss, val_proposal_loss, val_caption_loss))
@@ -463,7 +466,7 @@ def train(options):
                 all_scores = -1
                 if options['evaluate_metric']:
                     all_scores, combined_score = evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, caption_inputs, proposal_outputs, caption_outputs)
-                    
+
                     print('combined score: %.3f'%(combined_score,))
 
                 jeval_results = OrderedDict()
@@ -480,7 +483,7 @@ def train(options):
 
                 saver.save(sess, checkpoint_path)
                 checkpoint_filenames.append(checkpoint_path)
-                
+
                 eval_id = eval_id + 1
 
                 # automatically lower learning rate
@@ -490,15 +493,15 @@ def train(options):
                     view_end_eval_id = eval_id
                     view_start_eval_id = view_end_eval_id - options['n_eval_observe']
                     view_start_epoch_id = (view_end_eval_id + init_epoch*options['n_eval_per_epoch'] - options['n_eval_observe']) // options['n_eval_per_epoch']
-                    
+
 
                     review_results = [result['loss'][0] for result in eval_results[view_start_eval_id:view_end_eval_id]]
                     if options['evaluate_metric']:
-                        review_results = [result['score'] for result in eval_results[view_start_eval_id:view_end_eval_id]] 
-                    
+                        review_results = [result['score'] for result in eval_results[view_start_eval_id:view_end_eval_id]]
+
                     if view_start_eval_id >= 0:
                         if options['evaluate_metric'] and review_results.index(max(review_results)) == 0:
-                            # go back to the state of view_start_eval_id, and lower learning rate  
+                            # go back to the state of view_start_eval_id, and lower learning rate
                             print('Init model from %s ...'%checkpoint_filenames[view_start_eval_id])
                             saver.restore(sess, checkpoint_filenames[view_start_eval_id])
                             print('Decaying learning rate ...')
@@ -515,8 +518,8 @@ def train(options):
                             if lr < options['min_lr']:
                                 print('Reach minimum learning rate. Done training.')
                                 return
-                
-                
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
