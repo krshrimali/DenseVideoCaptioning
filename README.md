@@ -49,7 +49,7 @@ The pre-trained model and validation/test prediction can be found [here](https:/
 
 tensorflow==1.0.1
 
-python==2.7.5
+python==3.x
 
 Other versions may also work.
 
